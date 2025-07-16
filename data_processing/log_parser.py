@@ -24,26 +24,27 @@ class LogParser:
         line = line.strip()
         if not line:
             return None
-        
-        # Extract ServiceId
-        service_match = re.search(r'ServiceId:\s*(0x[0-9a-fA-F]+)', line)
-        service_id = service_match.group(1) if service_match else None
-        
-        if not service_id:
+
+        # Extract ServiceId (robust: accept :, =, optional 0x, case-insensitive)
+        service_match = re.search(r'ServiceId\s*[:=]\s*(0x)?([0-9a-fA-F]+)', line, re.IGNORECASE)
+        if service_match:
+            # Always store as 0x + lowercase hex
+            service_id = '0x' + service_match.group(2).lower()
+        else:
             return None
-        
+
         # Extract timestamp
         timestamp_match = re.search(r'\[(\d+)\]', line)
         timestamp = timestamp_match.group(1) if timestamp_match else str(line_num)
-        
+
         # Extract log level
         level_match = re.search(r'\]\[([A-Z]+)\]\s', line)
         level = level_match.group(1) if level_match else 'INFO'
-        
+
         # Extract component
         component_match = re.search(r'\]([^[]+)\]\[', line)
         component = component_match.group(1) if component_match else 'Unknown'
-        
+
         # Format timestamp
         try:
             ts_int = int(timestamp)
@@ -51,7 +52,7 @@ class LogParser:
             formatted_time = TimestampParser.format_timestamp(dt)
         except:
             formatted_time = timestamp
-        
+
         return {
             'timestamp': formatted_time,
             'service_id': service_id,
@@ -63,7 +64,7 @@ class LogParser:
         }
     
     def search_log_file(self, log_file: str, service_id: Optional[str] = None, 
-                       max_messages: int = 20000, progress_callback: Optional[Callable] = None) -> List[Dict]:
+                       max_messages: int = 200000, progress_callback: Optional[Callable] = None) -> List[Dict]:
         """Search log file for messages matching the service ID."""
         messages = []
         
@@ -97,22 +98,28 @@ class LogParser:
         
         return messages
     
+    def _normalize_service_id(self, sid: Optional[str]) -> Optional[str]:
+        """Normalize ServiceId for comparison: remove 0x prefix, lowercase."""
+        if sid is None:
+            return None
+        sid = sid.strip()
+        if sid.lower().startswith('0x'):
+            sid = sid[2:]
+        return sid.lower()
+
     def _process_real_log_file(self, log_file: str, service_id: Optional[str], 
                               max_messages: int, progress_callback: Optional[Callable]) -> List[Dict]:
         """Process real log file."""
         messages = []
-        
         # Count total lines for progress
         total_lines = sum(1 for _ in open(log_file, 'r', encoding='utf-8', errors='ignore'))
         processed_lines = 0
-        
+        norm_service_id = self._normalize_service_id(service_id)
         with open(log_file, 'r', encoding='utf-8', errors='ignore') as f:
             for line_num, line in enumerate(f):
                 if self.stop_event.is_set():
                     break
-                
                 processed_lines += 1
-                
                 # Update progress every 100 lines
                 if processed_lines % 100 == 0:
                     progress = min((processed_lines / total_lines) * 100, 100)
@@ -121,22 +128,19 @@ class LogParser:
                                                     message=f'Processing line {processed_lines}/{total_lines}...')
                     if progress_callback:
                         progress_callback('log', int(progress))
-                
                 # Parse line
                 parsed_line = self.parse_log_line(line, line_num)
                 if not parsed_line:
                     continue
-                
-                # Filter by service ID if specified
-                if service_id and parsed_line['service_id'].upper() != service_id.upper():
-                    continue
-                
+                # Filter by service ID if specified (normalize both sides)
+                if norm_service_id is not None:
+                    parsed_sid = self._normalize_service_id(parsed_line['service_id'])
+                    if parsed_sid != norm_service_id:
+                        continue
                 messages.append(parsed_line)
-                
                 # Limit number of messages for performance
                 if len(messages) >= max_messages:
                     break
-        
         return messages
     
     def _generate_sample_log_data(self, service_id: Optional[str], max_messages: int, 

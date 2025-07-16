@@ -95,9 +95,9 @@ class Config:
         """Get data file paths."""
         data_dir = self.get('data.directory', './data')
         return {
-            'log_file': os.path.join(data_dir, self.get('data.log_file', 'adaptive.log')),
-            'dlt_file': os.path.join(data_dir, self.get('data.dlt_file', 'dltlog_0.dlt')),
-            'pcap_json_file': os.path.join(data_dir, self.get('data.pcap_json_file', 'full_pcap.json'))
+            'log_file': os.path.join(data_dir, self.get('data.log_file', '')),
+            'dlt_file': os.path.join(data_dir, self.get('data.dlt_file', '')),
+            'pcap_json_file': os.path.join(data_dir, self.get('data.pcap_json_file', ''))
         }
 
 

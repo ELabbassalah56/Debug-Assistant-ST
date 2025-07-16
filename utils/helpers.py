@@ -15,7 +15,7 @@ class ServiceDiscovery:
     def __init__(self):
         self.discovered_services: Set[str] = set()
     
-    def discover_from_log(self, log_file: str, line_limit: int = 1000) -> Set[str]:
+    def discover_from_log(self, log_file: str, line_limit: int = 200000) -> Set[str]:
         """Discover services from log file."""
         services = set()
         try:

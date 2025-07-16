@@ -59,10 +59,11 @@ class DebugAssistantApp:
         # Threading control
         self.processing_threads = {}
         self.stop_event = threading.Event()
+        self.threads_lock = threading.Lock()
         
         # Initialize data files and discover services
         self.initialize_data()
-        
+
         # Setup layout and callbacks
         self.setup_layout()
         self.setup_callbacks()
@@ -178,6 +179,7 @@ class DebugAssistantApp:
             button_id = ctx.triggered[0]['prop_id'].split('.')[0]
             
             if button_id == 'run-button' and run_clicks and selected_service:
+                print(f"🚀 Starting analysis for {selected_service} with sources: {data_sources}")
                 self.start_analysis(selected_service, data_sources or [])
                 return f"Analysis started for {selected_service}"
             elif button_id == 'stop-button' and stop_clicks:
@@ -328,54 +330,57 @@ class DebugAssistantApp:
             return "Ready for report or UML generation"
     
     def start_analysis(self, service_id: str, data_sources: list):
-        """Start analysis for the selected service."""
+        """Start analysis for the selected service in a thread-safe manner."""
         print(f"🚀 Starting analysis for service {service_id} with sources: {data_sources}")
         
         # Stop any existing analysis
-        self.stop_analysis()
+        # self.stop_analysis()
         
         # Get data file paths
         data_files = config.get_data_files()
         
-        # Start analysis threads
-        if 'log' in data_sources:
-            thread = threading.Thread(
-                target=self.analyze_log_data,
-                args=(service_id, data_files['log_file']),
-                daemon=True
-            )
-            thread.start()
-            self.processing_threads['log'] = thread
-        
-        if 'dlt' in data_sources:
-            thread = threading.Thread(
-                target=self.analyze_dlt_data,
-                args=(service_id, data_files['dlt_file']),
-                daemon=True
-            )
-            thread.start()
-            self.processing_threads['dlt'] = thread
-        
-        if 'pcap' in data_sources:
-            thread = threading.Thread(
-                target=self.analyze_pcap_data,
-                args=(service_id, data_files['pcap_json_file']),
-                daemon=True
-            )
-            thread.start()
-            self.processing_threads['pcap'] = thread
-        
-        if 'other' in data_sources:
-            thread = threading.Thread(
-                target=self.analyze_other_data,
-                args=(service_id,),
-                daemon=True
-            )
-            thread.start()
-            self.processing_threads['other'] = thread
+        # --- THREAD-SAFE MODIFICATION ---
+        # Acquire lock before modifying the shared dictionary
+        with self.threads_lock:
+            # Start analysis threads
+            if 'log' in data_sources:
+                thread = threading.Thread(
+                    target=self.analyze_log_data,
+                    args=(service_id, data_files['log_file']),
+                    daemon=True
+                )
+                thread.start()
+                self.processing_threads['log'] = thread
+            
+            if 'dlt' in data_sources:
+                thread = threading.Thread(
+                    target=self.analyze_dlt_data,
+                    args=(service_id, data_files['dlt_file']),
+                    daemon=True
+                )
+                thread.start()
+                self.processing_threads['dlt'] = thread
+            
+            if 'pcap' in data_sources:
+                thread = threading.Thread(
+                    target=self.analyze_pcap_data,
+                    args=(service_id, data_files['pcap_json_file']),
+                    daemon=True
+                )
+                thread.start()
+                self.processing_threads['pcap'] = thread
+            
+            if 'other' in data_sources:
+                thread = threading.Thread(
+                    target=self.analyze_other_data,
+                    args=(service_id,),
+                    daemon=True
+                )
+                thread.start()
+                self.processing_threads['other'] = thread
     
     def stop_analysis(self):
-        """Stop all analysis operations."""
+        """Stop all analysis operations in a thread-safe manner."""
         print("⏹️ Stopping analysis...")
         self.stop_event.set()
         
@@ -384,12 +389,22 @@ class DebugAssistantApp:
         self.dlt_parser.stop_search()
         self.pcap_parser.stop_search()
         
-        # Wait for threads to finish
-        for thread in self.processing_threads.values():
-            if thread.is_alive():
-                thread.join(timeout=1)
+        threads_to_join = []
         
-        self.processing_threads.clear()
+        # --- THREAD-SAFE MODIFICATION ---
+        # Acquire lock to safely get a copy of threads and clear the dictionary
+        with self.threads_lock:
+            # Create a copy of the threads to join.
+            # This avoids iterating over the dictionary while it might be modified
+            # and prevents holding the lock during the join() calls.
+            threads_to_join = list(self.processing_threads.values())
+            self.processing_threads.clear()
+        
+        # Wait for threads to finish outside of the lock
+        for thread in threads_to_join:
+            if thread.is_alive():
+                thread.join(timeout=1) # Wait for up to 1 second
+        
         self.stop_event.clear()
     
     def analyze_log_data(self, service_id: str, log_file: str):
@@ -397,6 +412,8 @@ class DebugAssistantApp:
         try:
             max_messages = config.get('data.max_messages_per_source', 20000)
             messages = self.log_parser.search_log_file(log_file, service_id, max_messages)
+            for message in messages:
+                print(f"🔍 Found log message: {message['full_message']}")
             self.data_cache['log'][service_id] = messages
         except Exception as e:
             print(f"❌ Error analyzing log data: {e}")

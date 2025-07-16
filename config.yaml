@@ -2,19 +2,19 @@ app:
   title: "Debug Assistant"
   host: "0.0.0.0"
   port: 8050
-  debug: false
+  debug: true
 
 data:
   directory: "./data"
   log_file: "adaptive.log"
-  dlt_file: "dltlog_0.dlt"
-  pcap_json_file: "full_pcap.json"
+  dlt_file: ""
+  pcap_json_file: ""
   max_messages_per_source: 200000
   discovery_line_limit: 200000
 
 processing:
   progress_update_interval: 100
-  thread_timeout: 30
+  thread_timeout: 50
   auto_search_on_selection: true
 
 ui:
